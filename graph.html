@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Algo-Rythmn Contact Graph</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f6;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Toolbar */
+    #toolbar {
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 10px 16px;
+      flex-shrink: 0;
+    }
+    #company-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 5px;
+    }
+    .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .badge {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+    .badge-sector   { background: #ede9ff; color: #4c3fb5; }
+    .badge-status   { background: #e1f5ee; color: #0f6e56; }
+    .badge-priority { background: #fdecea; color: #a33222; }
+    .badge-type     { background: #fff4d6; color: #7a5a00; }
+    .badge-declined { background: #fdecea; color: #a33222; }
+    .badge-active   { background: #e1f5ee; color: #0f6e56; }
+    .badge-on-hold  { background: #fff4d6; color: #7a5a00; }
+
+    /* Legend */
+    #legend {
+      background: #fff;
+      border-bottom: 1px solid #eee;
+      padding: 6px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      font-size: 11px;
+      color: #555;
+      flex-shrink: 0;
+    }
+    .leg { display: flex; align-items: center; gap: 5px; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .leg-rect { width: 12px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+    /* Main area */
+    #main { flex: 1; display: flex; min-height: 0; }
+    #cy   { flex: 1; background: #fafafa; position: relative; }
+
+    /* Info panel */
+    #info-panel {
+      width: 300px;
+      background: #fff;
+      border-left: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    #info-header {
+      padding: 12px 14px 8px;
+      border-bottom: 1px solid #eee;
+      font-size: 12px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+    #info-content {
+      padding: 12px 14px;
+      font-size: 13px;
+      color: #3d3d3a;
+      overflow-y: auto;
+      flex: 1;
+      line-height: 1.6;
+    }
+    .hint { color: #ccc; font-size: 12px; }
+    .info-row { margin-bottom: 12px; }
+    .info-label {
+      font-size: 10px;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+    .info-value { color: #1a1a1a; word-break: break-word; }
+    .info-value a { color: #185FA5; text-decoration: none; }
+    .info-value a:hover { text-decoration: underline; }
+
+    /* Loading */
+    #loading {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: #999;
+      font-size: 14px;
+    }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid #eee;
+      border-top-color: #534AB7;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 10px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div id="company-title">Loading…</div>
+  <div class="badges" id="badges"></div>
+</div>
+
+<div id="legend">
+  <div class="leg"><div class="leg-dot" style="background:#534AB7"></div> Company</div>
+  <div class="leg"><div class="leg-dot" style="background:#1D9E75"></div> Contact</div>
+  <div class="leg"><div class="leg-rect" style="background:#3a8fb7"></div> Role</div>
+  <div class="leg"><div class="leg-rect" style="background:#1a7a9e"></div> Email</div>
+  <div class="leg"><div class="leg-rect" style="background:#D85A30"></div> Meeting</div>
+  <div class="leg"><div class="leg-rect" style="background:#BA7517"></div> Resource/Demo</div>
+  <div class="leg"><div class="leg-dot" style="background:#8B74D8;opacity:0.8"></div> Introduced by</div>
+</div>
+
+<div id="main">
+  <div id="cy">
+    <div id="loading">
+      <div class="spinner"></div>
+      Loading graph…
+    </div>
+  </div>
+  <div id="info-panel">
+    <div id="info-header">Details</div>
+    <div id="info-content">
+      <p class="hint">Click any node to see details here.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── CONFIG — replace with your values ──────────────────────
+  var SUPABASE_URL      = "https://enfyxksujosbwgguicwy.supabase.co";
+  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVuZnl4a3N1am9zYndnZ3VpY3d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxMzk1MTIsImV4cCI6MjA5NTcxNTUxMn0.WQCPYrDMxmYQkJjM1rGJ5VNSescAv2zB8KYaLNYpY4M";
+  // ───────────────────────────────────────────────────────────
+
+  var H = {
+    "apikey":        SUPABASE_ANON_KEY,
+    "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type":  "application/json"
+  };
+
+  var companyName = new URLSearchParams(window.location.search).get("company") || "";
+  if (!companyName) {
+    document.getElementById("loading").innerHTML =
+      "<p style='color:#c00'>No company specified.<br>Add ?company=CompanyName to the URL.</p>";
+  } else {
+    loadGraph(companyName);
+  }
+
+  // ── Data fetching ─────────────────────────────────────────
+
+  async function api(path) {
+    var res = await fetch(SUPABASE_URL + "/rest/v1/" + path, { headers: H });
+    if (!res.ok) throw new Error("API error: " + res.status + " " + path);
+    return res.json();
+  }
+
+  async function loadGraph(name) {
+    try {
+      // 1 — Company
+      var companies = await api(
+        "companies?name=ilike." + encodeURIComponent(name) +
+        "&limit=1&select=id,name,sector,status,priority,contact_type,notes,since,from_product_team"
+      );
+      if (!companies.length) {
+        document.getElementById("loading").innerHTML =
+          "<p style='color:#c00'>No company found: <b>" + name + "</b></p>";
+        return;
+      }
+      var co  = companies[0];
+      var cid = co.id;
+
+      // 2 — Contacts
+      var contacts = await api(
+        "contacts?company_id=eq." + cid +
+        "&select=id,full_name,role,email,notes,status"
+      );
+
+      // 3 — Meetings (company-level)
+      var meetings = await api(
+        "meetings?company_id=eq." + cid +
+        "&select=id,title,summary_url,notes"
+      );
+
+      // 4 — Resources (company-level)
+      var resources = await api(
+        "resources?company_id=eq." + cid +
+        "&select=id,label,resource_type,url"
+      );
+
+      // 5 — Relationships (per-contact referrals)
+      var relationships = await api(
+        "relationships?to_company_id=eq." + cid +
+        "&select=id,from_contact_id,note"
+      );
+
+      document.getElementById("loading").style.display = "none";
+      buildToolbar(co);
+      buildGraph(co, contacts, meetings, resources, relationships);
+
+    } catch(err) {
+      document.getElementById("loading").innerHTML =
+        "<p style='color:#c00'>Error: " + err.message + "</p>";
+    }
+  }
+
+  // ── Toolbar ───────────────────────────────────────────────
+
+  function buildToolbar(co) {
+    document.getElementById("company-title").textContent = co.name;
+    var bc = document.getElementById("badges");
+    [
+      { v: co.sector,       c: "badge-sector"   },
+      { v: co.status,       c: "badge-status"   },
+      { v: co.priority,     c: "badge-priority" },
+      { v: co.contact_type, c: "badge-type"     },
+    ].forEach(function(b) {
+      if (!b.v || b.v === "null") return;
+      var s = document.createElement("span");
+      s.className = "badge " + b.c;
+      s.textContent = b.v;
+      bc.appendChild(s);
+    });
+  }
+
+  // ── Graph ─────────────────────────────────────────────────
+
+  function trunc(s, n) {
+    if (!s) return "";
+    s = s.toString().trim();
+    return s.length > n ? s.substring(0, n) + "…" : s;
+  }
+
+  function buildGraph(co, contacts, meetings, resources, relationships) {
+    var nodes = [], edges = [];
+
+    // ── Company node ────────────────────────────────────────
+    nodes.push({ data: {
+      id: "company", label: co.name,
+      type: "company", detail: co
+    }});
+
+    // Company-level attribute nodes
+    // Status
+    if (co.status) {
+      nodes.push({ data: { id: "co_status", label: co.status,
+        type: "co_attr", attrLabel: "Status", attrValue: co.status }});
+      edges.push({ data: { source: "company", target: "co_status", etype: "co_attr" }});
+    }
+    // Priority
+    if (co.priority) {
+      nodes.push({ data: { id: "co_priority", label: "↑ " + co.priority,
+        type: "co_attr", attrLabel: "Priority", attrValue: co.priority }});
+      edges.push({ data: { source: "company", target: "co_priority", etype: "co_attr" }});
+    }
+    // Type
+    if (co.contact_type) {
+      nodes.push({ data: { id: "co_type", label: co.contact_type,
+        type: "co_attr", attrLabel: "Type", attrValue: co.contact_type }});
+      edges.push({ data: { source: "company", target: "co_type", etype: "co_attr" }});
+    }
+    // Since
+    if (co.since) {
+      nodes.push({ data: { id: "co_since", label: "Since " + co.since.substring(0,7),
+        type: "co_attr", attrLabel: "Since", attrValue: co.since }});
+      edges.push({ data: { source: "company", target: "co_since", etype: "co_attr" }});
+    }
+    // Meetings (company-level)
+    meetings.forEach(function(m) {
+      var id = "m_" + m.id;
+      nodes.push({ data: {
+        id: id, label: trunc(m.title, 32),
+        type: "meeting", detail: m
+      }});
+      edges.push({ data: { source: "company", target: id, etype: "meeting" }});
+    });
+    // Resources / demos (company-level)
+    resources.forEach(function(r) {
+      var id = "r_" + r.id;
+      nodes.push({ data: {
+        id: id, label: trunc(r.label || r.resource_type, 28),
+        type: "resource", detail: r
+      }});
+      edges.push({ data: { source: "company", target: id, etype: "resource" }});
+    });
+
+    // ── Build referral map keyed by from_contact_id ─────────
+    var refMap = {};
+    relationships.forEach(function(rel) {
+      var raw = (rel.note || "");
+      // Extract introducer name — strip "Source: " or "Introduced X via: " prefix
+      var introducer = raw
+        .replace(/^Introduced .+ via:\s*/i, "")
+        .replace(/^Source:\s*/i, "")
+        .trim();
+      if (!introducer) return;
+      var key = rel.from_contact_id || "__company";
+      if (!refMap[key]) refMap[key] = [];
+      refMap[key].push({ introducer: introducer, note: raw });
+    });
+
+    // ── Contact nodes + their attributes ────────────────────
+    contacts.forEach(function(p) {
+      var contactId = "c_" + p.id;
+
+      nodes.push({ data: {
+        id: contactId, label: p.full_name,
+        type: "contact", detail: p
+      }});
+      edges.push({ data: {
+        source: "company", target: contactId, etype: "contact"
+      }});
+
+      // Role — contact-level attribute
+      if (p.role) {
+        var rid = contactId + "_role";
+        nodes.push({ data: {
+          id: rid, label: trunc(p.role, 32),
+          type: "attr_role",
+          attrLabel: "Role", attrValue: p.role, parentName: p.full_name
+        }});
+        edges.push({ data: { source: contactId, target: rid, etype: "attr" }});
+      }
+
+      // Email — contact-level attribute
+      if (p.email) {
+        var eid = contactId + "_email";
+        nodes.push({ data: {
+          id: eid, label: "✉ " + trunc(p.email, 24),
+          type: "attr_email",
+          attrLabel: "Email", attrValue: p.email, parentName: p.full_name
+        }});
+        edges.push({ data: { source: contactId, target: eid, etype: "attr" }});
+      }
+
+      // Notes — contact-level, only if meaningful
+      if (p.notes && p.notes.trim().length > 8) {
+        var nid = contactId + "_notes";
+        nodes.push({ data: {
+          id: nid, label: "📝 Notes",
+          type: "attr_notes",
+          attrLabel: "Notes", attrValue: p.notes, parentName: p.full_name
+        }});
+        edges.push({ data: { source: contactId, target: nid, etype: "attr" }});
+      }
+
+      // Referral — who introduced THIS specific contact
+      var refs = refMap[p.id] || [];
+      refs.forEach(function(ref, i) {
+        var refId = contactId + "_ref_" + i;
+        nodes.push({ data: {
+          id: refId, label: ref.introducer,
+          type: "referral",
+          attrLabel: "Introduced by", attrValue: ref.introducer,
+          parentName: p.full_name
+        }});
+        // Arrow goes FROM referral TO contact (shows direction of introduction)
+        edges.push({ data: { source: refId, target: contactId, etype: "referral" }});
+      });
+    });
+
+    // Unattached referrals → connect to company
+    var unattached = refMap["__company"] || [];
+    unattached.forEach(function(ref, i) {
+      var refId = "co_ref_" + i;
+      nodes.push({ data: {
+        id: refId, label: ref.introducer,
+        type: "referral",
+        attrLabel: "Introduced by", attrValue: ref.introducer, parentName: ""
+      }});
+      edges.push({ data: { source: refId, target: "company", etype: "referral" }});
+    });
+
+    // ── Cytoscape ─────────────────────────────────────────────
+    var cy = cytoscape({
+      container: document.getElementById("cy"),
+      elements: { nodes: nodes, edges: edges },
+      style: [
+        // Company
+        { selector: '[type="company"]', style: {
+          "background-color": "#534AB7", "color": "#fff",
+          "label": "data(label)", "font-size": 14, "font-weight": "bold",
+          "text-valign": "center", "text-halign": "center",
+          "shape": "round-rectangle", "width": 180, "height": 56,
+          "text-wrap": "wrap", "text-max-width": 165
+        }},
+        // Contact
+        { selector: '[type="contact"]', style: {
+          "background-color": "#1D9E75", "color": "#fff",
+          "label": "data(label)", "font-size": 12, "font-weight": "bold",
+          "text-valign": "center", "shape": "ellipse",
+          "width": 130, "height": 48,
+          "text-wrap": "wrap", "text-max-width": 120
+        }},
+        // Company-level attribute (status, priority, type, since)
+        { selector: '[type="co_attr"]', style: {
+          "background-color": "#6c5fc7", "background-opacity": 0.7, "color": "#fff",
+          "label": "data(label)", "font-size": 10,
+          "text-valign": "center", "shape": "round-rectangle",
+          "width": 110, "height": 28,
+          "text-wrap": "ellipsis", "text-max-width": 100
+        }},
+        // Role
+        { selector: '[type="attr_role"]', style: {
+          "background-color": "#3a8fb7", "color": "#fff",
+          "label": "data(label)", "font-size": 10,
+          "text-valign": "center", "shape": "round-rectangle",
+          "width": 120, "height": 28,
+          "text-wrap": "ellipsis", "text-max-width": 110
+        }},
+        // Email
+        { selector: '[type="attr_email"]', style: {
+          "background-color": "#1a7a9e", "color": "#fff",
+          "label": "data(label)", "font-size": 10,
+          "text-valign": "center", "shape": "round-rectangle",
+          "width": 130, "height": 28,
+          "text-wrap": "ellipsis", "text-max-width": 120
+        }},
+        // Notes
+        { selector: '[type="attr_notes"]', style: {
+          "background-color": "#5a6f80", "color": "#fff",
+          "label": "data(label)", "font-size": 10,
+          "text-valign": "center", "shape": "round-rectangle",
+          "width": 90, "height": 28
+        }},
+        // Meeting (company-level)
+        { selector: '[type="meeting"]', style: {
+          "background-color": "#D85A30", "color": "#fff",
+          "label": "data(label)", "font-size": 10,
+          "text-valign": "center", "shape": "round-rectangle",
+          "width": 140, "height": 34,
+          "text-wrap": "ellipsis", "text-max-width": 130
+        }},
+        // Resource / demo (company-level)
+        { selector: '[type="resource"]', style: {
+          "background-color": "#BA7517", "color": "#fff",
+          "label": "data(label)", "font-size": 10,
+          "text-valign": "center", "shape": "round-diamond",
+          "width": 130, "height": 52,
+          "text-wrap": "ellipsis", "text-max-width": 118
+        }},
+        // Referral
+        { selector: '[type="referral"]', style: {
+          "background-color": "#8B74D8", "background-opacity": 0.8, "color": "#fff",
+          "label": "data(label)", "font-size": 11,
+          "text-valign": "center", "shape": "ellipse",
+          "width": 115, "height": 40,
+          "border-width": 2, "border-color": "#534AB7",
+          "text-wrap": "wrap", "text-max-width": 105
+        }},
+        // Edges
+        { selector: "edge", style: {
+          "width": 1.5, "line-color": "#d0d0d0",
+          "curve-style": "bezier",
+          "target-arrow-shape": "triangle", "target-arrow-color": "#d0d0d0",
+          "arrow-scale": 0.8
+        }},
+        // Company → company attribute edges (lighter)
+        { selector: '[etype="co_attr"]', style: {
+          "line-color": "#b8b0e8", "target-arrow-color": "#b8b0e8",
+          "width": 1, "target-arrow-shape": "none", "line-style": "dotted"
+        }},
+        // Contact attribute edges (light blue)
+        { selector: '[etype="attr"]', style: {
+          "line-color": "#c0d8e4", "target-arrow-color": "#c0d8e4",
+          "width": 1, "target-arrow-shape": "none"
+        }},
+        // Referral edges (dashed purple)
+        { selector: '[etype="referral"]', style: {
+          "line-style": "dashed", "line-color": "#b0a8e8",
+          "target-arrow-color": "#b0a8e8", "target-arrow-shape": "triangle"
+        }},
+        // Meeting edges
+        { selector: '[etype="meeting"]', style: {
+          "line-color": "#e8a090", "target-arrow-color": "#e8a090",
+          "width": 1.2
+        }},
+        // Resource edges
+        { selector: '[etype="resource"]', style: {
+          "line-color": "#d4a060", "target-arrow-color": "#d4a060",
+          "width": 1.2
+        }},
+        { selector: "node:active", style: { "overlay-opacity": 0.1 }},
+        { selector: ":selected", style: { "border-width": 3, "border-color": "#1a1a1a" }}
+      ],
+      layout: {
+        name: "cose",
+        padding: 60,
+        animate: true,
+        animationDuration: 600,
+        randomize: false,
+        nodeRepulsion: 8000,
+        idealEdgeLength: 130,
+        gravity: 0.25,
+        numIter: 1000
+      }
+    });
+
+    // ── Node tap → info panel ─────────────────────────────────
+    cy.on("tap", "node", function(evt) {
+      var d  = evt.target.data();
+      var ic = document.getElementById("info-content");
+
+      function row(label, value, isLink) {
+        if (!value || value === "null") return "";
+        var val = isLink
+          ? "<a href='" + value + "' target='_blank'>" + value + " ↗</a>"
+          : value.toString().replace(/\n/g, "<br>");
+        return "<div class='info-row'>" +
+          "<div class='info-label'>" + label + "</div>" +
+          "<div class='info-value'>" + val + "</div></div>";
+      }
+
+      var html = "";
+
+      if (d.type === "company") {
+        var c = d.detail;
+        html += row("Company", "<b>" + c.name + "</b>");
+        html += row("Sector",   c.sector);
+        html += row("Status",   c.status);
+        html += row("Priority", c.priority);
+        html += row("Type",     c.contact_type);
+        html += row("Since",    c.since);
+        if (c.from_product_team) html += row("From product team", c.from_product_team);
+        if (c.notes) html += row("Notes", c.notes.substring(0, 800));
+
+      } else if (d.type === "contact") {
+        var p = d.detail;
+        html += row("Contact", "<b>" + p.full_name + "</b>");
+        html += row("Role",    p.role);
+        if (p.email) {
+          html += "<div class='info-row'><div class='info-label'>Email</div>" +
+            "<div class='info-value'><a href='mailto:" + p.email + "'>" + p.email + "</a></div></div>";
+        }
+        html += row("Status",  p.status);
+        if (p.notes) html += row("Notes", p.notes.substring(0, 500));
+
+      } else if (d.type === "co_attr") {
+        html += row(d.attrLabel, d.attrValue);
+
+      } else if (d.type && d.type.startsWith("attr_")) {
+        if (d.parentName) html += row("Contact", d.parentName);
+        if (d.attrLabel === "Email") {
+          html += "<div class='info-row'><div class='info-label'>Email</div>" +
+            "<div class='info-value'><a href='mailto:" + d.attrValue + "'>" + d.attrValue + "</a></div></div>";
+        } else {
+          html += row(d.attrLabel, d.attrValue);
+        }
+
+      } else if (d.type === "meeting") {
+        var m = d.detail;
+        html += row("Meeting", "<b>" + m.title + "</b>");
+        if (m.summary_url) html += row("Link", m.summary_url, true);
+        if (m.notes) html += row("Notes", m.notes.substring(0, 500));
+
+      } else if (d.type === "resource") {
+        var r = d.detail;
+        html += row("Type",  r.resource_type);
+        html += row("Label", r.label);
+        if (r.url) html += row("Link", r.url, true);
+
+      } else if (d.type === "referral") {
+        html += row("Introduced by", "<b>" + d.attrValue + "</b>");
+        if (d.parentName) html += row("Introduced contact", d.parentName);
+      }
+
+      ic.innerHTML = html || "<p class='hint'>No details available.</p>";
+    });
+
+    cy.on("tap", function(evt) {
+      if (evt.target === cy) {
+        document.getElementById("info-content").innerHTML =
+          "<p class='hint'>Click any node to see details here.</p>";
+      }
+    });
+  }
+</script>
+</body>
+</html>
