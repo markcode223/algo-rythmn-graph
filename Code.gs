@@ -5,7 +5,7 @@
 
 // ── CONFIG ───────────────────────────────────────────────────
 // Replace with your deployed Vercel URL after deployment
-var GRAPH_URL = "https://algo-rythmn-graph.vercel.app/graph.html";
+var GRAPH_URL = "https://markcode223.github.io/algo-rythmn-graph/graph.html";
 
 // Exact sector header rows in the sheet — used to skip non-company rows
 var SECTOR_HEADERS = [
