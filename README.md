@@ -1,2 +1,2 @@
 # algo-rythmn-graph
-Visual the sheets
+Visualize the sheets
