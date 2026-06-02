@@ -6,7 +6,7 @@
 
 // ── CONFIG ──────────────────────────────────────────────────────
 // Replace with your GitHub Pages URL after uploading graph.html
-var GRAPH_URL = "https://YOUR-USERNAME.github.io/algo-rythmn-graph/graph.html";
+var GRAPH_URL = "https://enfyxksujosbwgguicwy.supabase.co/algo-rythmn-graph/graph.html";
 
 // Column positions (1-indexed) — matches your sheet exactly
 var COL = {
