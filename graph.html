@@ -40,9 +40,6 @@
     .badge-status   { background: #e1f5ee; color: #0f6e56; }
     .badge-priority { background: #fdecea; color: #a33222; }
     .badge-type     { background: #fff4d6; color: #7a5a00; }
-    .badge-declined { background: #fdecea; color: #a33222; }
-    .badge-active   { background: #e1f5ee; color: #0f6e56; }
-    .badge-on-hold  { background: #fff4d6; color: #7a5a00; }
 
     /* Legend */
     #legend {
@@ -57,8 +54,14 @@
       flex-shrink: 0;
     }
     .leg { display: flex; align-items: center; gap: 5px; }
-    .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .leg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .leg-rect { width: 12px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+    .leg-hint {
+      margin-left: auto;
+      font-size: 10px;
+      color: #aaa;
+      font-style: italic;
+    }
 
     /* Main area */
     #main { flex: 1; display: flex; min-height: 0; }
@@ -92,6 +95,15 @@
       line-height: 1.6;
     }
     .hint { color: #ccc; font-size: 12px; }
+    .dbl-hint {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 11px;
+      color: #aaa;
+      background: #f5f5f5;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
     .info-row { margin-bottom: 12px; }
     .info-label {
       font-size: 10px;
@@ -101,8 +113,26 @@
       margin-bottom: 2px;
     }
     .info-value { color: #1a1a1a; word-break: break-word; }
-    .info-value a { color: #185FA5; text-decoration: none; }
+    .info-value a {
+      color: #185FA5;
+      text-decoration: none;
+    }
     .info-value a:hover { text-decoration: underline; }
+
+    /* Open link button */
+    .open-link-btn {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 6px 14px;
+      background: #534AB7;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .open-link-btn:hover { background: #4239a0; text-decoration: none; }
 
     /* Loading */
     #loading {
@@ -122,6 +152,11 @@
       margin: 0 auto 10px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Nodes with links get a subtle glow border */
+    .has-link-indicator {
+      border: 2px solid #185FA5 !important;
+    }
   </style>
 </head>
 <body>
@@ -137,8 +172,9 @@
   <div class="leg"><div class="leg-rect" style="background:#3a8fb7"></div> Role</div>
   <div class="leg"><div class="leg-rect" style="background:#1a7a9e"></div> Email</div>
   <div class="leg"><div class="leg-rect" style="background:#D85A30"></div> Meeting</div>
-  <div class="leg"><div class="leg-rect" style="background:#BA7517"></div> Resource/Demo</div>
+  <div class="leg"><div class="leg-rect" style="background:#BA7517"></div> Resource</div>
   <div class="leg"><div class="leg-dot" style="background:#8B74D8;opacity:0.8"></div> Introduced by</div>
+  <div class="leg-hint">🔗 = has link · double-click any node to open its link</div>
 </div>
 
 <div id="main">
@@ -151,7 +187,7 @@
   <div id="info-panel">
     <div id="info-header">Details</div>
     <div id="info-content">
-      <p class="hint">Click any node to see details here.</p>
+      <p class="hint">Click any node to see details.<br>Double-click a 🔗 node to open its link.</p>
     </div>
   </div>
 </div>
@@ -160,6 +196,7 @@
   // ── CONFIG — replace with your values ──────────────────────
   var SUPABASE_URL      = "https://enfyxksujosbwgguicwy.supabase.co";
   var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVuZnl4a3N1am9zYndnZ3VpY3d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxMzk1MTIsImV4cCI6MjA5NTcxNTUxMn0.WQCPYrDMxmYQkJjM1rGJ5VNSescAv2zB8KYaLNYpY4M";
+
   // ───────────────────────────────────────────────────────────
 
   var H = {
@@ -176,17 +213,54 @@
     loadGraph(companyName);
   }
 
-  // ── Data fetching ─────────────────────────────────────────
+  // ── Utilities ─────────────────────────────────────────────
+
+  function trunc(s, n) {
+    if (!s) return "";
+    s = s.toString().trim();
+    return s.length > n ? s.substring(0, n) + "…" : s;
+  }
+
+  function isUrl(s) {
+    if (!s) return false;
+    return /^https?:\/\//i.test(s.toString().trim());
+  }
+
+  // Extract first URL found in a block of text
+  function extractFirstUrl(text) {
+    if (!text) return "";
+    var m = text.match(/(https?:\/\/[^\s\)"']+)/);
+    return m ? m[1] : "";
+  }
+
+  // Make a label for a URL node — show domain only to keep it short
+  function urlLabel(url, prefix) {
+    try {
+      var domain = new URL(url).hostname.replace("www.", "");
+      return (prefix || "🔗 ") + trunc(domain, 28);
+    } catch(e) {
+      return (prefix || "🔗 ") + trunc(url, 28);
+    }
+  }
+
+  // Open a URL safely in a new tab
+  function openLink(url) {
+    if (!url || !isUrl(url)) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  // ── API fetcher ───────────────────────────────────────────
 
   async function api(path) {
     var res = await fetch(SUPABASE_URL + "/rest/v1/" + path, { headers: H });
-    if (!res.ok) throw new Error("API error: " + res.status + " " + path);
+    if (!res.ok) throw new Error("API error " + res.status + ": " + path);
     return res.json();
   }
 
+  // ── Main loader ───────────────────────────────────────────
+
   async function loadGraph(name) {
     try {
-      // 1 — Company
       var companies = await api(
         "companies?name=ilike." + encodeURIComponent(name) +
         "&limit=1&select=id,name,sector,status,priority,contact_type,notes,since,from_product_team"
@@ -199,25 +273,18 @@
       var co  = companies[0];
       var cid = co.id;
 
-      // 2 — Contacts
       var contacts = await api(
         "contacts?company_id=eq." + cid +
         "&select=id,full_name,role,email,notes,status"
       );
-
-      // 3 — Meetings (company-level)
       var meetings = await api(
         "meetings?company_id=eq." + cid +
         "&select=id,title,summary_url,notes"
       );
-
-      // 4 — Resources (company-level)
       var resources = await api(
         "resources?company_id=eq." + cid +
         "&select=id,label,resource_type,url"
       );
-
-      // 5 — Relationships (per-contact referrals)
       var relationships = await api(
         "relationships?to_company_id=eq." + cid +
         "&select=id,from_contact_id,note"
@@ -252,72 +319,74 @@
     });
   }
 
-  // ── Graph ─────────────────────────────────────────────────
-
-  function trunc(s, n) {
-    if (!s) return "";
-    s = s.toString().trim();
-    return s.length > n ? s.substring(0, n) + "…" : s;
-  }
+  // ── Graph builder ─────────────────────────────────────────
 
   function buildGraph(co, contacts, meetings, resources, relationships) {
     var nodes = [], edges = [];
 
     // ── Company node ────────────────────────────────────────
+    // Check if from_product_team or notes contain a URL
+    var coUrl = extractFirstUrl(co.from_product_team) || extractFirstUrl(co.notes);
     nodes.push({ data: {
       id: "company", label: co.name,
-      type: "company", detail: co
+      type: "company", detail: co,
+      url: coUrl
     }});
 
     // Company-level attribute nodes
-    // Status
     if (co.status) {
       nodes.push({ data: { id: "co_status", label: co.status,
-        type: "co_attr", attrLabel: "Status", attrValue: co.status }});
+        type: "co_attr", attrLabel: "Status", attrValue: co.status, url: "" }});
       edges.push({ data: { source: "company", target: "co_status", etype: "co_attr" }});
     }
-    // Priority
     if (co.priority) {
       nodes.push({ data: { id: "co_priority", label: "↑ " + co.priority,
-        type: "co_attr", attrLabel: "Priority", attrValue: co.priority }});
+        type: "co_attr", attrLabel: "Priority", attrValue: co.priority, url: "" }});
       edges.push({ data: { source: "company", target: "co_priority", etype: "co_attr" }});
     }
-    // Type
     if (co.contact_type) {
       nodes.push({ data: { id: "co_type", label: co.contact_type,
-        type: "co_attr", attrLabel: "Type", attrValue: co.contact_type }});
+        type: "co_attr", attrLabel: "Type", attrValue: co.contact_type, url: "" }});
       edges.push({ data: { source: "company", target: "co_type", etype: "co_attr" }});
     }
-    // Since
     if (co.since) {
       nodes.push({ data: { id: "co_since", label: "Since " + co.since.substring(0,7),
-        type: "co_attr", attrLabel: "Since", attrValue: co.since }});
+        type: "co_attr", attrLabel: "Since", attrValue: co.since, url: "" }});
       edges.push({ data: { source: "company", target: "co_since", etype: "co_attr" }});
     }
-    // Meetings (company-level)
+
+    // Meeting nodes — always have URL stored in summary_url
     meetings.forEach(function(m) {
-      var id = "m_" + m.id;
+      var id  = "m_" + m.id;
+      var url = m.summary_url || extractFirstUrl(m.notes) || "";
+      var label = url
+        ? "🔗 " + trunc(m.title, 28)
+        : trunc(m.title, 32);
       nodes.push({ data: {
-        id: id, label: trunc(m.title, 32),
-        type: "meeting", detail: m
+        id: id, label: label,
+        type: "meeting", detail: m, url: url
       }});
       edges.push({ data: { source: "company", target: id, etype: "meeting" }});
     });
-    // Resources / demos (company-level)
+
+    // Resource nodes — always have URL
     resources.forEach(function(r) {
-      var id = "r_" + r.id;
+      var id  = "r_" + r.id;
+      var url = r.url || "";
+      var label = url
+        ? "🔗 " + trunc(r.label || r.resource_type, 26)
+        : trunc(r.label || r.resource_type, 28);
       nodes.push({ data: {
-        id: id, label: trunc(r.label || r.resource_type, 28),
-        type: "resource", detail: r
+        id: id, label: label,
+        type: "resource", detail: r, url: url
       }});
       edges.push({ data: { source: "company", target: id, etype: "resource" }});
     });
 
-    // ── Build referral map keyed by from_contact_id ─────────
+    // Build referral map
     var refMap = {};
     relationships.forEach(function(rel) {
       var raw = (rel.note || "");
-      // Extract introducer name — strip "Source: " or "Introduced X via: " prefix
       var introducer = raw
         .replace(/^Introduced .+ via:\s*/i, "")
         .replace(/^Source:\s*/i, "")
@@ -328,52 +397,59 @@
       refMap[key].push({ introducer: introducer, note: raw });
     });
 
-    // ── Contact nodes + their attributes ────────────────────
+    // Contact nodes + their attribute children
     contacts.forEach(function(p) {
       var contactId = "c_" + p.id;
 
       nodes.push({ data: {
         id: contactId, label: p.full_name,
-        type: "contact", detail: p
+        type: "contact", detail: p, url: ""
       }});
-      edges.push({ data: {
-        source: "company", target: contactId, etype: "contact"
-      }});
+      edges.push({ data: { source: "company", target: contactId, etype: "contact" }});
 
-      // Role — contact-level attribute
+      // Role
       if (p.role) {
         var rid = contactId + "_role";
+        var roleUrl = extractFirstUrl(p.role);
         nodes.push({ data: {
-          id: rid, label: trunc(p.role, 32),
+          id: rid,
+          label: roleUrl ? "🔗 " + trunc(p.role, 30) : trunc(p.role, 32),
           type: "attr_role",
-          attrLabel: "Role", attrValue: p.role, parentName: p.full_name
+          attrLabel: "Role", attrValue: p.role,
+          parentName: p.full_name, url: roleUrl
         }});
         edges.push({ data: { source: contactId, target: rid, etype: "attr" }});
       }
 
-      // Email — contact-level attribute
+      // Email — always make it a mailto link
       if (p.email) {
         var eid = contactId + "_email";
         nodes.push({ data: {
-          id: eid, label: "✉ " + trunc(p.email, 24),
+          id: eid,
+          label: "✉ " + trunc(p.email, 24),
           type: "attr_email",
-          attrLabel: "Email", attrValue: p.email, parentName: p.full_name
+          attrLabel: "Email", attrValue: p.email,
+          parentName: p.full_name,
+          url: "mailto:" + p.email  // mailto link
         }});
         edges.push({ data: { source: contactId, target: eid, etype: "attr" }});
       }
 
-      // Notes — contact-level, only if meaningful
+      // Notes — check if notes contain a URL
       if (p.notes && p.notes.trim().length > 8) {
         var nid = contactId + "_notes";
+        var noteUrl = extractFirstUrl(p.notes);
         nodes.push({ data: {
-          id: nid, label: "📝 Notes",
+          id: nid,
+          label: noteUrl ? "🔗 Notes" : "📝 Notes",
           type: "attr_notes",
-          attrLabel: "Notes", attrValue: p.notes, parentName: p.full_name
+          attrLabel: "Notes", attrValue: p.notes,
+          parentName: p.full_name, url: noteUrl
         }});
         edges.push({ data: { source: contactId, target: nid, etype: "attr" }});
       }
 
-      // Referral — who introduced THIS specific contact
+      // Per-contact referrals
       var refs = refMap[p.id] || [];
       refs.forEach(function(ref, i) {
         var refId = contactId + "_ref_" + i;
@@ -381,31 +457,30 @@
           id: refId, label: ref.introducer,
           type: "referral",
           attrLabel: "Introduced by", attrValue: ref.introducer,
-          parentName: p.full_name
+          parentName: p.full_name, url: ""
         }});
-        // Arrow goes FROM referral TO contact (shows direction of introduction)
         edges.push({ data: { source: refId, target: contactId, etype: "referral" }});
       });
     });
 
-    // Unattached referrals → connect to company
+    // Unattached referrals → company
     var unattached = refMap["__company"] || [];
     unattached.forEach(function(ref, i) {
       var refId = "co_ref_" + i;
       nodes.push({ data: {
         id: refId, label: ref.introducer,
         type: "referral",
-        attrLabel: "Introduced by", attrValue: ref.introducer, parentName: ""
+        attrLabel: "Introduced by", attrValue: ref.introducer,
+        parentName: "", url: ""
       }});
       edges.push({ data: { source: refId, target: "company", etype: "referral" }});
     });
 
-    // ── Cytoscape ─────────────────────────────────────────────
+    // ── Cytoscape ──────────────────────────────────────────
     var cy = cytoscape({
       container: document.getElementById("cy"),
       elements: { nodes: nodes, edges: edges },
       style: [
-        // Company
         { selector: '[type="company"]', style: {
           "background-color": "#534AB7", "color": "#fff",
           "label": "data(label)", "font-size": 14, "font-weight": "bold",
@@ -413,7 +488,6 @@
           "shape": "round-rectangle", "width": 180, "height": 56,
           "text-wrap": "wrap", "text-max-width": 165
         }},
-        // Contact
         { selector: '[type="contact"]', style: {
           "background-color": "#1D9E75", "color": "#fff",
           "label": "data(label)", "font-size": 12, "font-weight": "bold",
@@ -421,7 +495,6 @@
           "width": 130, "height": 48,
           "text-wrap": "wrap", "text-max-width": 120
         }},
-        // Company-level attribute (status, priority, type, since)
         { selector: '[type="co_attr"]', style: {
           "background-color": "#6c5fc7", "background-opacity": 0.7, "color": "#fff",
           "label": "data(label)", "font-size": 10,
@@ -429,7 +502,6 @@
           "width": 110, "height": 28,
           "text-wrap": "ellipsis", "text-max-width": 100
         }},
-        // Role
         { selector: '[type="attr_role"]', style: {
           "background-color": "#3a8fb7", "color": "#fff",
           "label": "data(label)", "font-size": 10,
@@ -437,7 +509,6 @@
           "width": 120, "height": 28,
           "text-wrap": "ellipsis", "text-max-width": 110
         }},
-        // Email
         { selector: '[type="attr_email"]', style: {
           "background-color": "#1a7a9e", "color": "#fff",
           "label": "data(label)", "font-size": 10,
@@ -445,14 +516,12 @@
           "width": 130, "height": 28,
           "text-wrap": "ellipsis", "text-max-width": 120
         }},
-        // Notes
         { selector: '[type="attr_notes"]', style: {
           "background-color": "#5a6f80", "color": "#fff",
           "label": "data(label)", "font-size": 10,
           "text-valign": "center", "shape": "round-rectangle",
           "width": 90, "height": 28
         }},
-        // Meeting (company-level)
         { selector: '[type="meeting"]', style: {
           "background-color": "#D85A30", "color": "#fff",
           "label": "data(label)", "font-size": 10,
@@ -460,7 +529,6 @@
           "width": 140, "height": 34,
           "text-wrap": "ellipsis", "text-max-width": 130
         }},
-        // Resource / demo (company-level)
         { selector: '[type="resource"]', style: {
           "background-color": "#BA7517", "color": "#fff",
           "label": "data(label)", "font-size": 10,
@@ -468,7 +536,6 @@
           "width": 130, "height": 52,
           "text-wrap": "ellipsis", "text-max-width": 118
         }},
-        // Referral
         { selector: '[type="referral"]', style: {
           "background-color": "#8B74D8", "background-opacity": 0.8, "color": "#fff",
           "label": "data(label)", "font-size": 11,
@@ -477,81 +544,109 @@
           "border-width": 2, "border-color": "#534AB7",
           "text-wrap": "wrap", "text-max-width": 105
         }},
+        // Nodes that have a URL get a bright border to signal clickability
+        { selector: '[url != ""]', style: {
+          "border-width": 2.5,
+          "border-color": "#185FA5",
+          "border-opacity": 0.7
+        }},
         // Edges
         { selector: "edge", style: {
           "width": 1.5, "line-color": "#d0d0d0",
           "curve-style": "bezier",
-          "target-arrow-shape": "triangle", "target-arrow-color": "#d0d0d0",
+          "target-arrow-shape": "triangle",
+          "target-arrow-color": "#d0d0d0",
           "arrow-scale": 0.8
         }},
-        // Company → company attribute edges (lighter)
         { selector: '[etype="co_attr"]', style: {
           "line-color": "#b8b0e8", "target-arrow-color": "#b8b0e8",
           "width": 1, "target-arrow-shape": "none", "line-style": "dotted"
         }},
-        // Contact attribute edges (light blue)
         { selector: '[etype="attr"]', style: {
           "line-color": "#c0d8e4", "target-arrow-color": "#c0d8e4",
           "width": 1, "target-arrow-shape": "none"
         }},
-        // Referral edges (dashed purple)
         { selector: '[etype="referral"]', style: {
-          "line-style": "dashed", "line-color": "#b0a8e8",
-          "target-arrow-color": "#b0a8e8", "target-arrow-shape": "triangle"
+          "line-style": "dashed",
+          "line-color": "#b0a8e8", "target-arrow-color": "#b0a8e8",
+          "target-arrow-shape": "triangle"
         }},
-        // Meeting edges
         { selector: '[etype="meeting"]', style: {
-          "line-color": "#e8a090", "target-arrow-color": "#e8a090",
-          "width": 1.2
+          "line-color": "#e8a090", "target-arrow-color": "#e8a090", "width": 1.2
         }},
-        // Resource edges
         { selector: '[etype="resource"]', style: {
-          "line-color": "#d4a060", "target-arrow-color": "#d4a060",
-          "width": 1.2
+          "line-color": "#d4a060", "target-arrow-color": "#d4a060", "width": 1.2
         }},
         { selector: "node:active", style: { "overlay-opacity": 0.1 }},
-        { selector: ":selected", style: { "border-width": 3, "border-color": "#1a1a1a" }}
+        { selector: ":selected",   style: { "border-width": 3, "border-color": "#1a1a1a" }}
       ],
       layout: {
-        name: "cose",
-        padding: 60,
-        animate: true,
-        animationDuration: 600,
-        randomize: false,
-        nodeRepulsion: 8000,
-        idealEdgeLength: 130,
-        gravity: 0.25,
-        numIter: 1000
+        name: "cose", padding: 60, animate: true,
+        animationDuration: 600, randomize: false,
+        nodeRepulsion: 8000, idealEdgeLength: 130,
+        gravity: 0.25, numIter: 1000
       }
     });
 
-    // ── Node tap → info panel ─────────────────────────────────
+    // ── Single click → info panel ─────────────────────────
     cy.on("tap", "node", function(evt) {
       var d  = evt.target.data();
       var ic = document.getElementById("info-content");
 
-      function row(label, value, isLink) {
+      function row(label, value, isLink, linkUrl) {
         if (!value || value === "null") return "";
-        var val = isLink
-          ? "<a href='" + value + "' target='_blank'>" + value + " ↗</a>"
-          : value.toString().replace(/\n/g, "<br>");
+        var val;
+        if (isLink && linkUrl) {
+          val = "<a href='" + linkUrl + "' target='_blank' rel='noopener noreferrer'>" +
+                value + " ↗</a>";
+        } else if (isUrl(value)) {
+          val = "<a href='" + value + "' target='_blank' rel='noopener noreferrer'>" +
+                value + " ↗</a>";
+        } else {
+          val = value.toString().replace(/\n/g, "<br>");
+        }
         return "<div class='info-row'>" +
           "<div class='info-label'>" + label + "</div>" +
           "<div class='info-value'>" + val + "</div></div>";
+      }
+
+      function linkBtn(url, label) {
+        if (!url) return "";
+        return "<a class='open-link-btn' href='" + url +
+          "' target='_blank' rel='noopener noreferrer'>" +
+          (label || "🔗 Open link") + "</a>";
       }
 
       var html = "";
 
       if (d.type === "company") {
         var c = d.detail;
-        html += row("Company", "<b>" + c.name + "</b>");
+        html += row("Company",  "<b>" + c.name + "</b>");
         html += row("Sector",   c.sector);
         html += row("Status",   c.status);
         html += row("Priority", c.priority);
         html += row("Type",     c.contact_type);
         html += row("Since",    c.since);
-        if (c.from_product_team) html += row("From product team", c.from_product_team);
-        if (c.notes) html += row("Notes", c.notes.substring(0, 800));
+        if (c.from_product_team) {
+          var ptUrl = extractFirstUrl(c.from_product_team);
+          html += "<div class='info-row'><div class='info-label'>From product team</div>" +
+            "<div class='info-value'>" +
+            (ptUrl
+              ? c.from_product_team.replace(ptUrl,
+                  "<a href='" + ptUrl + "' target='_blank'>" + ptUrl + " ↗</a>")
+              : c.from_product_team) +
+            "</div></div>";
+        }
+        if (c.notes) {
+          var notesUrl = extractFirstUrl(c.notes);
+          html += "<div class='info-row'><div class='info-label'>Notes</div>" +
+            "<div class='info-value'>" +
+            (notesUrl
+              ? c.notes.replace(notesUrl,
+                  "<a href='" + notesUrl + "' target='_blank'>" + notesUrl + " ↗</a>")
+              : c.notes.substring(0, 800).replace(/\n/g, "<br>")) +
+            "</div></div>";
+        }
 
       } else if (d.type === "contact") {
         var p = d.detail;
@@ -562,7 +657,16 @@
             "<div class='info-value'><a href='mailto:" + p.email + "'>" + p.email + "</a></div></div>";
         }
         html += row("Status",  p.status);
-        if (p.notes) html += row("Notes", p.notes.substring(0, 500));
+        if (p.notes) {
+          var nUrl = extractFirstUrl(p.notes);
+          html += "<div class='info-row'><div class='info-label'>Notes</div>" +
+            "<div class='info-value'>" +
+            (nUrl
+              ? p.notes.replace(nUrl,
+                  "<a href='" + nUrl + "' target='_blank'>" + nUrl + " ↗</a>")
+              : p.notes.substring(0, 500).replace(/\n/g, "<br>")) +
+            "</div></div>";
+        }
 
       } else if (d.type === "co_attr") {
         html += row(d.attrLabel, d.attrValue);
@@ -571,35 +675,70 @@
         if (d.parentName) html += row("Contact", d.parentName);
         if (d.attrLabel === "Email") {
           html += "<div class='info-row'><div class='info-label'>Email</div>" +
-            "<div class='info-value'><a href='mailto:" + d.attrValue + "'>" + d.attrValue + "</a></div></div>";
+            "<div class='info-value'><a href='mailto:" + d.attrValue + "'>" +
+            d.attrValue + "</a></div></div>";
         } else {
-          html += row(d.attrLabel, d.attrValue);
+          // Check if value contains URLs and make them clickable
+          var av = d.attrValue || "";
+          var avUrl = extractFirstUrl(av);
+          html += "<div class='info-row'><div class='info-label'>" + d.attrLabel + "</div>" +
+            "<div class='info-value'>" +
+            (avUrl
+              ? av.replace(avUrl,
+                  "<a href='" + avUrl + "' target='_blank'>" + avUrl + " ↗</a>")
+              : av.replace(/\n/g, "<br>").substring(0, 500)) +
+            "</div></div>";
         }
+        if (d.url) html += linkBtn(d.url, "🔗 Open link");
 
       } else if (d.type === "meeting") {
         var m = d.detail;
         html += row("Meeting", "<b>" + m.title + "</b>");
-        if (m.summary_url) html += row("Link", m.summary_url, true);
-        if (m.notes) html += row("Notes", m.notes.substring(0, 500));
+        if (m.summary_url) html += linkBtn(m.summary_url, "🔗 Open meeting notes");
+        if (m.notes) {
+          var mnUrl = extractFirstUrl(m.notes);
+          html += "<div class='info-row'><div class='info-label'>Notes</div>" +
+            "<div class='info-value'>" +
+            (mnUrl
+              ? m.notes.replace(mnUrl,
+                  "<a href='" + mnUrl + "' target='_blank'>" + mnUrl + " ↗</a>")
+              : m.notes.substring(0, 500).replace(/\n/g, "<br>")) +
+            "</div></div>";
+        }
 
       } else if (d.type === "resource") {
         var r = d.detail;
         html += row("Type",  r.resource_type);
         html += row("Label", r.label);
-        if (r.url) html += row("Link", r.url, true);
+        if (r.url) html += linkBtn(r.url, "🔗 Open resource");
 
       } else if (d.type === "referral") {
         html += row("Introduced by", "<b>" + d.attrValue + "</b>");
         if (d.parentName) html += row("Introduced contact", d.parentName);
       }
 
+      // If node has a URL, show double-click hint
+      if (d.url && d.url !== "") {
+        html += "<span class='dbl-hint'>⬆ Double-click this node to open link</span>";
+      }
+
       ic.innerHTML = html || "<p class='hint'>No details available.</p>";
     });
 
+    // ── Double click → open link ──────────────────────────
+    cy.on("dblclick", "node", function(evt) {
+      var d = evt.target.data();
+      if (d.url && d.url !== "") {
+        openLink(d.url);
+      }
+    });
+
+    // Click background → reset panel
     cy.on("tap", function(evt) {
       if (evt.target === cy) {
         document.getElementById("info-content").innerHTML =
-          "<p class='hint'>Click any node to see details here.</p>";
+          "<p class='hint'>Click any node to see details.<br>" +
+          "Double-click a 🔗 node to open its link.</p>";
       }
     });
   }
