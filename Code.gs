@@ -230,7 +230,7 @@ function readCompanyBlock(sheet, targetCompany) {
       }
 
     // Contact rows within target block
-    if (inTargetBlock && namesRaw) {
+    if (inTargetBlock && namesRaw && rowNum !== targetRowStart) {
       var names   = namesRaw.split(/[\n;]/).map(function(n){ return n.trim(); }).filter(Boolean);
       var roles   = (allValues[i][COL.ROLES - 1] || "").toString().split(/[\n;]/).map(function(r){ return r.trim(); });
       var source  = (allValues[i][COL.SOURCE - 1] || "").toString().trim();
