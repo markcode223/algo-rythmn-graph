@@ -136,18 +136,22 @@ function readCompanyBlock(sheet, targetCompany) {
         targetRowStart = rowNum;
 
         // Read company-level data including hyperlinks
+        if (companyRaw.toLowerCase() === targetCompany.toLowerCase()) {
+        inTargetBlock  = true;
+        targetRowStart = rowNum;
+
+        // Read company-level data
         result = {
           company: {
-            name:         companyRaw,
-            sector:       currentSector,
-            priority:     (allValues[i][COL.PRIORITY     - 1] || "").toString().trim(),
-            status:       (allValues[i][COL.STATUS       - 1] || "").toString().trim(),
-            contact_type: (allValues[i][COL.CTYPE        - 1] || "").toString().trim(),
-            since:        (allValues[i][COL.SINCE        - 1] || "").toString().trim(),
-            notes:        (allValues[i][COL.NOTES        - 1] || "").toString().trim(),
-            demos:        (allValues[i][COL.DEMOS        - 1] || "").toString().trim(),
-            product_team: (allValues[i][COL.PRODUCT_TEAM - 1] || "").toString().trim(),
-            // Read hyperlinks from product team column
+            name:             companyRaw,
+            sector:           currentSector,
+            priority:         (allValues[i][COL.PRIORITY     - 1] || "").toString().trim(),
+            status:           (allValues[i][COL.STATUS       - 1] || "").toString().trim(),
+            contact_type:     (allValues[i][COL.CTYPE        - 1] || "").toString().trim(),
+            since:            (allValues[i][COL.SINCE        - 1] || "").toString().trim(),
+            notes:            (allValues[i][COL.NOTES        - 1] || "").toString().trim(),
+            demos:            (allValues[i][COL.DEMOS        - 1] || "").toString().trim(),
+            product_team:     (allValues[i][COL.PRODUCT_TEAM - 1] || "").toString().trim(),
             product_team_url: getCellUrl(sheet, rowNum, COL.PRODUCT_TEAM),
           },
           contacts:  [],
@@ -155,7 +159,7 @@ function readCompanyBlock(sheet, targetCompany) {
           resources: []
         };
 
-        // Meeting recs — read hyperlink
+        // Meeting recs on the company row
         var meetingText = (allValues[i][COL.MEETING_RECS - 1] || "").toString().trim();
         var meetingUrl  = getCellUrl(sheet, rowNum, COL.MEETING_RECS);
         if (!meetingUrl) meetingUrl = extractFirstUrl(meetingText);
@@ -167,7 +171,7 @@ function readCompanyBlock(sheet, targetCompany) {
           });
         }
 
-        // Product team resources — extract all URLs
+        // Product team resources
         var ptText = result.company.product_team;
         var ptUrls = extractAllUrls(ptText);
         var ptCellUrl = result.company.product_team_url;
@@ -175,8 +179,55 @@ function readCompanyBlock(sheet, targetCompany) {
         ptUrls.forEach(function(url) {
           result.resources.push({ label: labelForUrl(url, ptText), url: url });
         });
+
+        // ── KEY FIX ──────────────────────────────────────────
+        // Row 5 for Alberta Government has BOTH the company name
+        // AND Kris Barker as a contact, AND the Email Chain + Notes
+        // hyperlinks. We must read hyperlinks on THIS row for the
+        // contact that shares it with the company.
+        // This runs for every company row — if namesRaw is empty
+        // it just adds nothing, so it is safe for all companies.
+        var namesOnCompanyRow = (allValues[i][COL.NAMES - 1] || "").toString().trim();
+        if (namesOnCompanyRow) {
+          var emailChainTextCo = (allValues[i][COL.EMAIL_CHAIN - 1] || "").toString().trim();
+          var notesTextCo      = (allValues[i][COL.NOTES       - 1] || "").toString().trim();
+          var demosTextCo      = (allValues[i][COL.DEMOS       - 1] || "").toString().trim();
+          var infoTextCo       = (allValues[i][COL.INFO        - 1] || "").toString().trim();
+
+          // Read ACTUAL hyperlink URLs from these cells
+          var emailChainUrlCo = getCellUrl(sheet, rowNum, COL.EMAIL_CHAIN);
+          var notesUrlCo      = getCellUrl(sheet, rowNum, COL.NOTES);
+          var demosUrlCo      = getCellUrl(sheet, rowNum, COL.DEMOS);
+
+          // Fallback: try extracting URL from cell text
+          if (!emailChainUrlCo) emailChainUrlCo = extractFirstUrl(emailChainTextCo);
+          if (!notesUrlCo)      notesUrlCo      = extractFirstUrl(notesTextCo);
+          if (!demosUrlCo)      demosUrlCo      = extractFirstUrl(demosTextCo);
+
+          var namesListCo = namesOnCompanyRow.split(/[\n;]/).map(function(n){ return n.trim(); }).filter(Boolean);
+          var rolesListCo = (allValues[i][COL.ROLES - 1] || "").toString().split(/[\n;]/).map(function(r){ return r.trim(); });
+          var sourceCo    = (allValues[i][COL.SOURCE - 1] || "").toString().trim();
+
+          namesListCo.forEach(function(name, j) {
+            var email = isEmailAddress(infoTextCo) ? infoTextCo : "";
+            var info  = !isEmailAddress(infoTextCo) ? infoTextCo : "";
+            result.contacts.push({
+              name:             name,
+              role:             rolesListCo[j] || "",
+              email:            j === 0 ? email : "",
+              info:             j === 0 ? info  : "",
+              source:           j === 0 ? sourceCo : "",
+              email_chain_text: j === 0 ? emailChainTextCo : "",
+              email_chain_url:  j === 0 ? emailChainUrlCo  : "",  // ← real URL
+              notes_text:       j === 0 ? notesTextCo      : "",
+              notes_url:        j === 0 ? notesUrlCo        : "",  // ← real URL
+              demos_text:       j === 0 ? demosTextCo      : "",
+              demos_url:        j === 0 ? demosUrlCo        : "",
+            });
+          });
+        }
+        // ── END KEY FIX ───────────────────────────────────────
       }
-    }
 
     // Contact rows within target block
     if (inTargetBlock && namesRaw) {
